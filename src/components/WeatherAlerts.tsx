@@ -62,7 +62,7 @@ export function WeatherAlerts() {
       </div>
 
       {/* Location Filter */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <h2 className="text-lg font-semibold mb-4">Search Area</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
@@ -97,7 +97,7 @@ export function WeatherAlerts() {
           <div className="flex items-end">
             <button
               onClick={handleRefresh}
-              className="w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+              className="w-full px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors"
             >
               Update
             </button>
@@ -108,7 +108,7 @@ export function WeatherAlerts() {
       {/* Alerts List */}
       <div className="space-y-4">
         {alerts?.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
+          <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-8 text-center">
             <div className="text-4xl mb-4">🌤️</div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No Active Alerts</h3>
             <p className="text-gray-600">No weather alerts in the specified area.</p>
@@ -117,7 +117,7 @@ export function WeatherAlerts() {
           alerts?.map((alert) => (
             <div
               key={alert._id}
-              className={`rounded-lg border-l-4 p-6 ${getSeverityColor(alert.severity)}`}
+              className={`rounded-2xl ring-1 ring-gray-200 p-6 ${getSeverityColor(alert.severity)}`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">

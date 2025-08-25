@@ -50,7 +50,7 @@ export function SpeedRecommendations() {
       </div>
 
       {/* Vessel Selection */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <h2 className="text-lg font-semibold mb-4">Select Vessel & Location</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
@@ -105,7 +105,7 @@ export function SpeedRecommendations() {
 
       {/* No Vessel Selected */}
       {!selectedVessel && (
-        <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
+        <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-8 text-center">
           <div className="text-4xl mb-4">⚡</div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Select a Vessel</h3>
           <p className="text-gray-600">Choose a vessel from your fleet to get speed optimization recommendations.</p>
@@ -116,14 +116,14 @@ export function SpeedRecommendations() {
       {selectedVessel && (
         <div className="space-y-4">
           {recommendations?.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
+            <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-8 text-center">
               <div className="text-4xl mb-4">📊</div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">No Recommendations Yet</h3>
               <p className="text-gray-600">Click "Calculate" to generate speed optimization recommendations.</p>
             </div>
           ) : (
             recommendations?.map((rec) => (
-              <div key={rec._id} className="bg-white rounded-lg shadow-sm border p-6">
+              <div key={rec._id} className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">Speed Recommendation</h3>

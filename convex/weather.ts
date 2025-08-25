@@ -2,6 +2,7 @@ import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
+import { Doc } from "./_generated/dataModel";
 
 // Get current weather alerts
 export const getActiveAlerts = query({
@@ -100,87 +101,136 @@ export const fetchWeatherData = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Using example data for now - user will need to set up OpenWeather API key
-    const mockWeatherData = {
-      current: {
-        temperature: 22,
-        windSpeed: 8.5,
-        windDirection: 245,
-        waveHeight: 2.1,
-        wavePeriod: 6.5,
-        waveDirection: 230,
-        currentSpeed: 0.8,
-        currentDirection: 180,
-        visibility: 15,
-        pressure: 1013,
-        humidity: 75,
-        precipitation: 0,
-        weatherCondition: "Partly Cloudy",
-      },
-      forecast: Array.from({ length: 10 }, (_, day) => ({
-        day: day + 1,
-        temperature: 22 + Math.sin(day * 0.5) * 3,
-        windSpeed: 8.5 + Math.random() * 5,
-        windDirection: 245 + Math.random() * 60 - 30,
-        waveHeight: 2.1 + Math.random() * 1.5,
-        wavePeriod: 6.5 + Math.random() * 2,
-        waveDirection: 230 + Math.random() * 40 - 20,
-        currentSpeed: 0.8 + Math.random() * 0.5,
-        currentDirection: 180 + Math.random() * 60 - 30,
-        visibility: 15 - Math.random() * 5,
-        pressure: 1013 + Math.random() * 20 - 10,
-        humidity: 75 + Math.random() * 20 - 10,
-        precipitation: Math.random() * 5,
-        weatherCondition: ["Clear", "Partly Cloudy", "Cloudy", "Light Rain"][Math.floor(Math.random() * 4)],
-      })),
-      alerts: [
-        {
-          alertId: `alert_${Date.now()}`,
-          type: "storm",
-          severity: "medium",
-          title: "Moderate Storm Warning",
-          description: "Moderate storm conditions expected with winds up to 25 knots and wave heights of 3-4 meters.",
-          lat: args.lat + 0.5,
-          lon: args.lon + 0.3,
-          radius: 50,
-          startTime: Date.now() + 6 * 60 * 60 * 1000, // 6 hours from now
-          endTime: Date.now() + 18 * 60 * 60 * 1000, // 18 hours from now
-          windSpeed: 25,
-          waveHeight: 3.5,
-          visibility: 8,
-        }
-      ]
-    };
+    // Fetch real data from Open-Meteo (free, no key)
+    const lat = args.lat;
+    const lon = args.lon;
 
-    // Store forecast data
-    for (const forecast of mockWeatherData.forecast) {
+    const dailyParams = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      daily: [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "precipitation_sum",
+        "windspeed_10m_max",
+        "winddirection_10m_dominant",
+        "visibility_mean",
+        "pressure_msl_mean",
+        "relative_humidity_2m_mean"
+      ].join(","),
+      timezone: "auto",
+    });
+
+    const marineParams = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      daily: [
+        "wave_height_max",
+        "wave_direction_dominant",
+        "wave_period_max"
+      ].join(","),
+      timezone: "auto",
+    });
+
+    const [meteoRes, marineRes] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?${dailyParams.toString()}`),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?${marineParams.toString()}`),
+    ]);
+
+    if (!meteoRes.ok) throw new Error("Failed to fetch weather forecast");
+    if (!marineRes.ok) throw new Error("Failed to fetch marine forecast");
+
+    const meteo = await meteoRes.json();
+    const marine = await marineRes.json();
+
+    const days = Math.min(
+      meteo.daily.time.length,
+      marine.daily.time.length,
+      10
+    );
+
+    const nowTs = Date.now();
+
+    for (let i = 0; i < days; i++) {
+      const temperature = (meteo.daily.temperature_2m_max[i] + meteo.daily.temperature_2m_min[i]) / 2;
+      const windSpeed = meteo.daily.windspeed_10m_max[i]; // m/s
+      const windDirection = meteo.daily.winddirection_10m_dominant[i] ?? 0;
+      const waveHeight = marine.daily.wave_height_max[i] ?? 0;
+      const wavePeriod = marine.daily.wave_period_max[i] ?? 0;
+      const waveDirection = marine.daily.wave_direction_dominant[i] ?? 0;
+      const visibility = (meteo.daily.visibility_mean?.[i] ?? 15000) / 1000; // convert m to km
+      const pressure = meteo.daily.pressure_msl_mean?.[i] ?? 1013;
+      const humidity = meteo.daily.relative_humidity_2m_mean?.[i] ?? 70;
+      const precipitation = meteo.daily.precipitation_sum?.[i] ?? 0;
+      const weatherCondition = precipitation > 0.1 ? (precipitation > 10 ? "Storm" : "Rain") : (windSpeed > 12 ? "Windy" : "Clear");
+
       await ctx.runMutation(api.weather.storeForecast, {
-        lat: Math.round(args.lat * 100) / 100,
-        lon: Math.round(args.lon * 100) / 100,
-        timestamp: Date.now(),
-        forecastDay: forecast.day,
-        temperature: forecast.temperature,
-        windSpeed: forecast.windSpeed,
-        windDirection: forecast.windDirection,
-        waveHeight: forecast.waveHeight,
-        wavePeriod: forecast.wavePeriod,
-        waveDirection: forecast.waveDirection,
-        currentSpeed: forecast.currentSpeed,
-        currentDirection: forecast.currentDirection,
-        visibility: forecast.visibility,
-        pressure: forecast.pressure,
-        humidity: forecast.humidity,
-        precipitation: forecast.precipitation,
-        weatherCondition: forecast.weatherCondition,
+        lat: Math.round(lat * 100) / 100,
+        lon: Math.round(lon * 100) / 100,
+        timestamp: nowTs,
+        forecastDay: i,
+        temperature,
+        windSpeed,
+        windDirection,
+        waveHeight,
+        wavePeriod,
+        waveDirection,
+        currentSpeed: 0, // not available; keep 0
+        currentDirection: 0,
+        visibility,
+        pressure,
+        humidity,
+        precipitation,
+        weatherCondition,
       });
+
+      // Derive simple alerts from thresholds
+      const alertCandidates: Array<{ type: string; severity: string; title: string; description: string; }> = [];
+      if (windSpeed >= 20) {
+        alertCandidates.push({
+          type: "storm",
+          severity: windSpeed >= 28 ? "critical" : "high",
+          title: "High Wind Warning",
+          description: `Max wind ${Math.round(windSpeed)} m/s expected. Navigation risk elevated.`,
+        });
+      }
+      if (waveHeight >= 3) {
+        alertCandidates.push({
+          type: "swell",
+          severity: waveHeight >= 5 ? "critical" : "high",
+          title: "High Swell Advisory",
+          description: `Waves up to ${waveHeight.toFixed(1)} m expected.`,
+        });
+      }
+      if (visibility <= 5) {
+        alertCandidates.push({
+          type: "fog",
+          severity: visibility <= 2 ? "high" : "medium",
+          title: "Low Visibility",
+          description: `Visibility down to ${visibility.toFixed(1)} km expected.`,
+        });
+      }
+
+      for (const cand of alertCandidates) {
+        await ctx.runMutation(api.weather.storeAlert, {
+          alertId: `${cand.type}_${meteo.daily.time[i]}_${Math.round(lat*100)}_${Math.round(lon*100)}`,
+          type: cand.type,
+          severity: cand.severity,
+          title: cand.title,
+          description: cand.description,
+          lat,
+          lon,
+          radius: 100,
+          startTime: new Date(meteo.daily.time[i]).getTime(),
+          endTime: new Date(meteo.daily.time[i]).getTime() + 24 * 60 * 60 * 1000,
+          windSpeed,
+          waveHeight,
+          visibility,
+        });
+      }
     }
 
-    // Store alerts
-    for (const alert of mockWeatherData.alerts) {
-      await ctx.runMutation(api.weather.storeAlert, alert);
-    }
-
-    return mockWeatherData;
+    return { ok: true };
   },
 });
 
@@ -267,16 +317,51 @@ export const calculateSpeedRecommendation = action({
     lat: v.number(),
     lon: v.number(),
   },
+  returns: v.object({
+    currentSpeed: v.number(),
+    recommendedSpeed: v.number(),
+    fuelSavings: v.number(),
+    timeImpact: v.number(),
+    reasoning: v.string(),
+    weatherConditions: v.object({
+      windSpeed: v.number(),
+      waveHeight: v.number(),
+      currentSpeed: v.number(),
+    }),
+  }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    
+    // Load real forecast (day 0) for provided location; fetch if missing
+    const roundedLat = Math.round(args.lat * 100) / 100;
+    const roundedLon = Math.round(args.lon * 100) / 100;
 
-    // Use mock weather data for calculation
-    const mockWeatherData = {
-      windSpeed: 8.5 + Math.random() * 10,
-      waveHeight: 2.1 + Math.random() * 2,
-      currentSpeed: 0.8 + Math.random() * 0.5,
-      currentDirection: 180 + Math.random() * 60 - 30,
+    let forecast: Array<Doc<"weatherForecasts">> = await ctx.runQuery(api.weather.getForecast, {
+      lat: roundedLat,
+      lon: roundedLon,
+      days: 1,
+    });
+
+    if (!forecast || forecast.length === 0) {
+      await ctx.runAction(api.weather.fetchWeatherData, { lat: roundedLat, lon: roundedLon });
+      forecast = await ctx.runQuery(api.weather.getForecast, {
+        lat: roundedLat,
+        lon: roundedLon,
+        days: 1,
+      });
+    }
+
+    const today: Doc<"weatherForecasts"> | undefined = forecast && forecast[0];
+    if (!today) {
+      throw new Error("No forecast available for this location");
+    }
+
+    const weatherData: { windSpeed: number; waveHeight: number; currentSpeed: number; currentDirection: number } = {
+      windSpeed: today.windSpeed,
+      waveHeight: today.waveHeight,
+      currentSpeed: today.currentSpeed,
+      currentDirection: today.currentDirection,
     };
 
     // Calculate optimal speed based on weather conditions
@@ -287,12 +372,12 @@ export const calculateSpeedRecommendation = action({
     let timeImpact = 0;
 
     // Adjust for wind conditions
-    if (mockWeatherData.windSpeed > 15) {
+    if (weatherData.windSpeed > 15) {
       recommendedSpeed *= 0.85; // Reduce speed by 15% in high winds
       fuelSavings = 12;
       timeImpact = 2;
       reasoning = "Reduced speed due to high winds for fuel efficiency and safety";
-    } else if (mockWeatherData.windSpeed < 5) {
+    } else if (weatherData.windSpeed < 5) {
       recommendedSpeed *= 1.1; // Increase speed by 10% in calm conditions
       fuelSavings = -5;
       timeImpact = -1;
@@ -300,7 +385,7 @@ export const calculateSpeedRecommendation = action({
     }
 
     // Adjust for wave conditions
-    if (mockWeatherData.waveHeight > 3) {
+    if (weatherData.waveHeight > 3) {
       recommendedSpeed *= 0.8; // Reduce speed by 20% in high waves
       fuelSavings += 15;
       timeImpact += 3;
@@ -308,8 +393,8 @@ export const calculateSpeedRecommendation = action({
     }
 
     // Adjust for current
-    const currentEffect = mockWeatherData.currentSpeed * Math.cos(
-      (mockWeatherData.currentDirection - 0) * Math.PI / 180
+    const currentEffect = weatherData.currentSpeed * Math.cos(
+      (weatherData.currentDirection - 0) * Math.PI / 180
     );
     
     if (currentEffect > 0.5) {
@@ -327,17 +412,17 @@ export const calculateSpeedRecommendation = action({
     // Store recommendation
     await ctx.runMutation(api.weather.storeSpeedRecommendation, {
       vesselId: args.vesselId,
-      lat: args.lat,
-      lon: args.lon,
+      lat: roundedLat,
+      lon: roundedLon,
       timestamp: Date.now(),
       currentSpeed: baseSpeed,
       recommendedSpeed,
       fuelSavings: Math.round(fuelSavings),
       timeImpact: Math.round(timeImpact * 10) / 10,
       weatherConditions: {
-        windSpeed: mockWeatherData.windSpeed,
-        waveHeight: mockWeatherData.waveHeight,
-        currentSpeed: mockWeatherData.currentSpeed,
+        windSpeed: weatherData.windSpeed,
+        waveHeight: weatherData.waveHeight,
+        currentSpeed: weatherData.currentSpeed,
       },
       reasoning,
     });
@@ -349,9 +434,9 @@ export const calculateSpeedRecommendation = action({
       timeImpact: Math.round(timeImpact * 10) / 10,
       reasoning,
       weatherConditions: {
-        windSpeed: mockWeatherData.windSpeed,
-        waveHeight: mockWeatherData.waveHeight,
-        currentSpeed: mockWeatherData.currentSpeed,
+        windSpeed: weatherData.windSpeed,
+        waveHeight: weatherData.waveHeight,
+        currentSpeed: weatherData.currentSpeed,
       },
     };
   },

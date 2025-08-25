@@ -1,33 +1,26 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import L from "leaflet";
 
 export function WeatherMap() {
   const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lon: -74.0060 });
+  const [latInput, setLatInput] = useState<string>("40.7128");
+  const [lonInput, setLonInput] = useState<string>("-74.0060");
   const [mapZoom, setMapZoom] = useState(6);
+  const [radiusKm, setRadiusKm] = useState(200);
+  const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const alertsLayerRef = useRef<L.LayerGroup | null>(null);
+  const vesselsLayerRef = useRef<L.LayerGroup | null>(null);
 
   const alerts = useQuery(api.weather.getActiveAlerts, {
     lat: mapCenter.lat,
     lon: mapCenter.lon,
-    radius: 200,
+    radius: radiusKm,
   });
 
   const vessels = useQuery(api.vessels.getUserVessels);
-
-  // Simple map visualization using CSS Grid
-  const mapWidth = 800;
-  const mapHeight = 600;
-  const gridSize = 20;
-
-  const latToY = (lat: number) => {
-    const normalizedLat = (lat - (mapCenter.lat - 5)) / 10;
-    return Math.max(0, Math.min(mapHeight - 20, (1 - normalizedLat) * mapHeight));
-  };
-
-  const lonToX = (lon: number) => {
-    const normalizedLon = (lon - (mapCenter.lon - 7.5)) / 15;
-    return Math.max(0, Math.min(mapWidth - 20, normalizedLon * mapWidth));
-  };
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -38,6 +31,113 @@ export function WeatherMap() {
       default: return "#6b7280";
     }
   };
+
+  // Helpers: parse latitude/longitude with optional N/S/E/W suffix
+  const parseLatitude = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    const match = trimmed.match(/^(-?\d+(?:\.\d+)?)(?:\s*([NnSs]))?$/);
+    if (!match) return null;
+    let num = parseFloat(match[1]);
+    const hemi = match[2]?.toUpperCase();
+    if (hemi === "S") num = -Math.abs(num);
+    if (hemi === "N") num = Math.abs(num);
+    if (!Number.isFinite(num)) return null;
+    return Math.max(-90, Math.min(90, num));
+  };
+
+  const parseLongitude = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    const match = trimmed.match(/^(-?\d+(?:\.\d+)?)(?:\s*([EeWw]))?$/);
+    if (!match) return null;
+    let num = parseFloat(match[1]);
+    const hemi = match[2]?.toUpperCase();
+    if (hemi === "W") num = -Math.abs(num);
+    if (hemi === "E") num = Math.abs(num);
+    if (!Number.isFinite(num)) return null;
+    if (num > 180) num = 180;
+    if (num < -180) num = -180;
+    return num;
+  };
+
+  // Initialize map once
+  useEffect(() => {
+    if (mapElementRef.current && !mapInstanceRef.current) {
+      const map = L.map(mapElementRef.current).setView([mapCenter.lat, mapCenter.lon], mapZoom);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+      alertsLayerRef.current = L.layerGroup().addTo(map);
+      vesselsLayerRef.current = L.layerGroup().addTo(map);
+      mapInstanceRef.current = map;
+    }
+  }, []);
+
+  // Update map view on center/zoom change
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([mapCenter.lat, mapCenter.lon], mapZoom);
+    }
+  }, [mapCenter, mapZoom]);
+
+  // Draw center radius circle for context
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+    const tempLayer = L.layerGroup().addTo(map);
+    const circle = L.circle([mapCenter.lat, mapCenter.lon], {
+      radius: radiusKm * 1000,
+      color: "#2563eb",
+      dashArray: "4,4",
+      fillOpacity: 0.05,
+      weight: 1,
+    });
+    circle.addTo(tempLayer);
+    return () => {
+      map.removeLayer(tempLayer);
+    };
+  }, [mapCenter, radiusKm]);
+
+  // Render alerts
+  useEffect(() => {
+    const layer = alertsLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    alerts?.forEach((alert) => {
+      const circle = L.circle([alert.lat, alert.lon], {
+        radius: alert.radius * 1000,
+        color: getSeverityColor(alert.severity),
+        fillOpacity: 0.2,
+        weight: 2,
+      });
+      circle.bindPopup(
+        `<div style="font-weight:600">${alert.title}</div><div style="font-size:12px">${alert.description}</div>`
+      );
+      circle.addTo(layer);
+    });
+  }, [alerts]);
+
+  // Render vessels
+  useEffect(() => {
+    const layer = vesselsLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    vessels?.filter(v => v.currentLat && v.currentLon).forEach((vessel) => {
+      const icon = L.divIcon({
+        className: "",
+        html: '<div style="width:12px;height:12px;background:#2563eb;border:2px solid white;border-radius:9999px;box-shadow:0 1px 2px rgba(0,0,0,0.3)"></div>',
+      });
+      const marker = L.marker([vessel.currentLat!, vessel.currentLon!], { icon });
+      const popup = [
+        `<div style="font-weight:600">${vessel.name}</div>`,
+        `<div style="font-size:12px">${vessel.vesselType}</div>`,
+        vessel.speed ? `<div style="font-size:12px">${vessel.speed} knots</div>` : "",
+      ].join("");
+      marker.bindPopup(popup);
+      marker.addTo(layer);
+    });
+  }, [vessels]);
 
   return (
     <div className="space-y-6">
@@ -50,16 +150,21 @@ export function WeatherMap() {
       </div>
 
       {/* Map Controls */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <h2 className="text-lg font-semibold mb-4">Map Controls</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Center Latitude</label>
             <input
               type="number"
               step="0.1"
-              value={mapCenter.lat}
-              onChange={(e) => setMapCenter(prev => ({ ...prev, lat: parseFloat(e.target.value) || 0 }))}
+              value={latInput}
+              onChange={(e) => setLatInput(e.target.value)}
+              onBlur={() => {
+                const parsed = parseLatitude(latInput);
+                if (parsed !== null) setMapCenter(prev => ({ ...prev, lat: parsed }));
+                else setLatInput(String(mapCenter.lat));
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -68,8 +173,13 @@ export function WeatherMap() {
             <input
               type="number"
               step="0.1"
-              value={mapCenter.lon}
-              onChange={(e) => setMapCenter(prev => ({ ...prev, lon: parseFloat(e.target.value) || 0 }))}
+              value={lonInput}
+              onChange={(e) => setLonInput(e.target.value)}
+              onBlur={() => {
+                const parsed = parseLongitude(lonInput);
+                if (parsed !== null) setMapCenter(prev => ({ ...prev, lon: parsed }));
+                else setLonInput(String(mapCenter.lon));
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -86,10 +196,25 @@ export function WeatherMap() {
               <option value={12}>Detailed View</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search Radius (km)</label>
+            <input
+              type="number"
+              step="1"
+              min={1}
+              value={radiusKm}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                const r = Number.isFinite(v) ? Math.max(1, Math.min(1000, v)) : 200;
+                setRadiusKm(r);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
           <div className="flex items-end">
             <button
-              onClick={() => setMapCenter({ lat: 40.7128, lon: -74.0060 })}
-              className="w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+              onClick={() => { setMapCenter({ lat: 40.7128, lon: -74.0060 }); setLatInput("40.7128"); setLonInput("-74.0060"); }}
+              className="w-full px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors"
             >
               Reset View
             </button>
@@ -98,7 +223,7 @@ export function WeatherMap() {
       </div>
 
       {/* Map Visualization */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Weather & Vessel Map</h2>
           <div className="flex items-center gap-4 text-sm">
@@ -116,117 +241,11 @@ export function WeatherMap() {
             </div>
           </div>
         </div>
-
-        <div className="relative overflow-hidden rounded-lg border" style={{ width: mapWidth, height: mapHeight }}>
-          {/* Ocean Background */}
-          <div 
-            className="absolute inset-0 bg-gradient-to-br from-blue-100 to-blue-200"
-            style={{
-              backgroundImage: `
-                radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-                linear-gradient(45deg, rgba(59, 130, 246, 0.05) 25%, transparent 25%),
-                linear-gradient(-45deg, rgba(59, 130, 246, 0.05) 25%, transparent 25%)
-              `,
-              backgroundSize: '100px 100px, 150px 150px, 20px 20px, 20px 20px'
-            }}
-          />
-
-          {/* Grid Lines */}
-          <svg className="absolute inset-0 w-full h-full opacity-20">
-            {Array.from({ length: Math.floor(mapWidth / gridSize) + 1 }, (_, i) => (
-              <line
-                key={`v-${i}`}
-                x1={i * gridSize}
-                y1={0}
-                x2={i * gridSize}
-                y2={mapHeight}
-                stroke="#6b7280"
-                strokeWidth="0.5"
-              />
-            ))}
-            {Array.from({ length: Math.floor(mapHeight / gridSize) + 1 }, (_, i) => (
-              <line
-                key={`h-${i}`}
-                x1={0}
-                y1={i * gridSize}
-                x2={mapWidth}
-                y2={i * gridSize}
-                stroke="#6b7280"
-                strokeWidth="0.5"
-              />
-            ))}
-          </svg>
-
-          {/* Weather Alerts */}
-          {alerts?.map((alert) => {
-            const x = lonToX(alert.lon);
-            const y = latToY(alert.lat);
-            const radius = Math.min(50, alert.radius / 2);
-            
-            return (
-              <div
-                key={alert._id}
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-                style={{ left: x, top: y }}
-              >
-                {/* Alert Circle */}
-                <div
-                  className="rounded-full opacity-30"
-                  style={{
-                    width: radius * 2,
-                    height: radius * 2,
-                    backgroundColor: getSeverityColor(alert.severity),
-                  }}
-                />
-                {/* Alert Icon */}
-                <div
-                  className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white font-bold text-xs bg-black bg-opacity-50 rounded-full w-6 h-6 flex items-center justify-center"
-                >
-                  ⚠️
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Vessels */}
-          {vessels?.filter(v => v.currentLat && v.currentLon).map((vessel) => {
-            const x = lonToX(vessel.currentLon!);
-            const y = latToY(vessel.currentLat!);
-            
-            return (
-              <div
-                key={vessel._id}
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
-                style={{ left: x, top: y }}
-              >
-                {/* Vessel Icon */}
-                <div className="w-4 h-4 bg-blue-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-xs">
-                  🚢
-                </div>
-                
-                {/* Vessel Info Tooltip */}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                  <div className="font-medium">{vessel.name}</div>
-                  <div>{vessel.vesselType}</div>
-                  {vessel.speed && <div>{vessel.speed} knots</div>}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Coordinate Labels */}
-          <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
-            {(mapCenter.lat + 5).toFixed(1)}°N, {(mapCenter.lon - 7.5).toFixed(1)}°W
-          </div>
-          <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
-            {(mapCenter.lat - 5).toFixed(1)}°N, {(mapCenter.lon + 7.5).toFixed(1)}°W
-          </div>
-        </div>
+        <div ref={mapElementRef} style={{ height: 600, width: "100%" }} />
       </div>
 
       {/* Legend */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <h2 className="text-lg font-semibold mb-4">Map Legend</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-2">

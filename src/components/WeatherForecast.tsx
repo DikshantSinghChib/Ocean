@@ -64,7 +64,7 @@ export function WeatherForecast() {
       </div>
 
       {/* Location Input */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
         <h2 className="text-lg font-semibold mb-4">Forecast Location</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
@@ -90,7 +90,7 @@ export function WeatherForecast() {
           <div className="flex items-end">
             <button
               onClick={handleRefresh}
-              className="w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+              className="w-full px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors"
             >
               Update Forecast
             </button>
@@ -101,7 +101,7 @@ export function WeatherForecast() {
       {/* Forecast Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {forecast?.map((day) => (
-          <div key={day._id} className="bg-white rounded-lg shadow-sm border p-4">
+          <div key={day._id} className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-4">
             <div className="text-center mb-4">
               <div className="text-sm font-medium text-gray-600 mb-1">
                 {day.forecastDay === 0 ? "Today" : formatDate(day.forecastDay)}
@@ -175,7 +175,7 @@ export function WeatherForecast() {
             </div>
           </div>
         )) || (
-          <div className="col-span-full bg-white rounded-lg shadow-sm border p-8 text-center">
+          <div className="col-span-full bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-8 text-center">
             <div className="text-4xl mb-4">🌤️</div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No Forecast Data</h3>
             <p className="text-gray-600">Click "Refresh Data" to load weather forecast.</p>
@@ -185,7 +185,7 @@ export function WeatherForecast() {
 
       {/* Detailed Analysis */}
       {forecast && forecast.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border p-6">
+        <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg ring-1 ring-gray-200 p-6">
           <h2 className="text-lg font-semibold mb-4">10-Day Analysis</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
