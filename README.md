@@ -241,26 +241,3 @@ npm run deploy
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- **Open-Meteo** for free weather data
-- **OpenStreetMap** for geocoding services
-- **Convex** for the real-time backend platform
-- **Tailwind CSS** for the utility-first CSS framework
-
-## 📞 Support
-
-- **Issues**: Create GitHub issues for bugs
-- **Discussions**: Use GitHub discussions for questions
-- **Documentation**: Check Convex docs for backend help
-
----
-
-**Built with ❤️ for the maritime industry**
-
-*Optimize your routes, save fuel, and stay safe with real-time weather intelligence.*
