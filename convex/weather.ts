@@ -409,6 +409,50 @@ export const calculateSpeedRecommendation = action({
 
     recommendedSpeed = Math.round(recommendedSpeed * 10) / 10;
 
+    // Check if we already have a recent recommendation for this vessel and location
+    const existingRecommendation = await ctx.runQuery(api.weather.getSpeedRecommendations, {
+      vesselId: args.vesselId,
+      limit: 1,
+    });
+    
+    // If we have a recent recommendation (within last hour), update it instead of creating new
+    if (existingRecommendation && existingRecommendation.length > 0) {
+      const lastRec = existingRecommendation[0];
+      const timeDiff = Date.now() - lastRec.timestamp;
+      const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+      
+      if (timeDiff < oneHour && 
+          Math.abs(lastRec.lat - roundedLat) < 0.01 && 
+          Math.abs(lastRec.lon - roundedLon) < 0.01) {
+        // Update existing recommendation instead of creating new one
+        await ctx.runMutation(api.weather.updateSpeedRecommendation, {
+          recommendationId: lastRec._id,
+          recommendedSpeed,
+          fuelSavings: Math.round(fuelSavings),
+          timeImpact: Math.round(timeImpact * 10) / 10,
+          weatherConditions: {
+            windSpeed: weatherData.windSpeed,
+            waveHeight: weatherData.waveHeight,
+            currentSpeed: weatherData.currentSpeed,
+          },
+          reasoning,
+          timestamp: Date.now(),
+        });
+        return {
+          currentSpeed: baseSpeed,
+          recommendedSpeed,
+          fuelSavings: Math.round(fuelSavings),
+          timeImpact: Math.round(timeImpact * 10) / 10,
+          reasoning,
+          weatherConditions: {
+            windSpeed: weatherData.windSpeed,
+            waveHeight: weatherData.waveHeight,
+            currentSpeed: weatherData.currentSpeed,
+          },
+        };
+      }
+    }
+
     // Store recommendation
     await ctx.runMutation(api.weather.storeSpeedRecommendation, {
       vesselId: args.vesselId,
@@ -462,6 +506,33 @@ export const storeSpeedRecommendation = mutation({
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("speedRecommendations", args);
+  },
+});
+
+// Mutation to update existing speed recommendations
+export const updateSpeedRecommendation = mutation({
+  args: {
+    recommendationId: v.id("speedRecommendations"),
+    recommendedSpeed: v.number(),
+    fuelSavings: v.number(),
+    timeImpact: v.number(),
+    weatherConditions: v.object({
+      windSpeed: v.number(),
+      waveHeight: v.number(),
+      currentSpeed: v.number(),
+    }),
+    reasoning: v.string(),
+    timestamp: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.patch(args.recommendationId, {
+      recommendedSpeed: args.recommendedSpeed,
+      fuelSavings: args.fuelSavings,
+      timeImpact: args.timeImpact,
+      weatherConditions: args.weatherConditions,
+      reasoning: args.reasoning,
+      timestamp: args.timestamp,
+    });
   },
 });
 
